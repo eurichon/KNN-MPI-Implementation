@@ -11,15 +11,19 @@
 
 
 knnresult distrAllkNN(double *X,int n,int d,int k){
+	struct timespec start, finish;
+	double elapsed;
 	knnresult result;
 	data *Data;
 	double *Y, *Z, *Dist, *Xsum, *Ysum;
 	int id, p;
 	int *Indexes;
-	double begin = MPI_Wtime();
+	
+	
 	
 	MPI_Comm_rank(MPI_COMM_WORLD, &id);
 	MPI_Comm_size(MPI_COMM_WORLD, &p);
+	
 	
 	//printf("Hello from process %i\n",id);
 	
@@ -60,11 +64,15 @@ knnresult distrAllkNN(double *X,int n,int d,int k){
 	calcDistances(X, Y, Xsum, Ysum, Dist, n, n, d); // performs the distance calculation and puts the result to Dist table
 	updateData(Data, Dist, curr, n, k);				// copies the elements of Dist in the rights position to Data and adds for each an id
 	calcKnn(&result,Data,n, k);						// performs quickselect and qsort for each point and sotres it to result
-	
+	elapsed = 0.0;
 	
 	for(int i = 0; i < (p - 1); i++){
 		curr = (curr - 1 + p) % p; //finds from which actual process we currently receive data
+		clock_gettime(CLOCK_MONOTONIC, &start);
 		MPI_Sendrecv(Y,(n * d), MPI_DOUBLE, next, tag, Z, (n * d), MPI_DOUBLE,previous, tag, MPI_COMM_WORLD, &status);	// Blocking method for simu; send/rec
+		clock_gettime(CLOCK_MONOTONIC, &finish);
+		elapsed += (finish.tv_sec - start.tv_sec);
+		elapsed += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
 		
 		memcpy(Y, Z, (n * d) * sizeof(double));
 		calcDistances(X, Y, Xsum, Ysum, Dist, n, n, d);
@@ -72,9 +80,9 @@ knnresult distrAllkNN(double *X,int n,int d,int k){
 		calcKnn(&result, Data, n, k);
 	}
 	
-	double end = MPI_Wtime();
+	
 	if(id == MASTER)
-		printf("Total time is: %lf\n",end - begin);
+		printf("Communication time is: %lf\n",elapsed);
 	
 	//if(id == MASTER)
 	//	printResult(result);

@@ -1,11 +1,150 @@
-#include "../inc/knnring.h"
+#include "mpi.h"
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
-#include <cblas.h>
+#include "cblas.h"
 #include <time.h>
+#include "../inc/knnring_syn_asyn.h"
+
+#define MASTER 0
+
+const double max = 1000.0;
+const double min = -1000.0;
+
+knnresult kNN(double * X, double * Y, int n, int m, int d, int k);
+int kthSmallest(data *a, int left, int right, int k);
+int partition(data *arr, int low, int high);
+void swap(data *a,data *b);
+int comparator(const void *p, const void *q);
+double getRandom(double min, double max);
+
+int main(int argc,char *argv[]){
+	int id, p; 
+	double begin, end;
+	double *X, *Data;
+	
+	
+	int n = 500;
+	int d = 20;
+	int k = 50;
+	
+	if(argc != 4)
+		exit(-1);
+	n = atoi(argv[1]);
+	d = atoi(argv[2]);
+	k = atoi(argv[3]);
+	
+	
+	MPI_Init(&argc,&argv);
+	MPI_Comm_rank(MPI_COMM_WORLD, &id);
+	MPI_Comm_size(MPI_COMM_WORLD, &p);
+	
+	//printf("Process %i form %i with total data %i\n",id,p,(n*d));
+	
+	/* =============================== Spread the data to all the processes ===========================*/
+	if(id == MASTER){
+		Data = (double *)malloc(p * (n * d) * sizeof(double));
+		X = (double *)malloc((n * d) * sizeof(double));
+		for(int i =0;i < p * (n * d); i++){
+			Data[i] = ( (double) (rand()) ) / (double) RAND_MAX;//getRandom(min,max);
+			if(i < (n * d)){
+				X[i] = Data[i];
+			}
+		}
+		
+		for(int dest = 1; dest < p; dest++){
+			//printf("Sending %i package\n",dest);
+			MPI_Send(&Data[dest * (n * d)], (n * d), MPI_DOUBLE, dest, 2 , MPI_COMM_WORLD);
+		}
+		begin = MPI_Wtime();
+	}else{
+		X = (double *)malloc((n * d) * sizeof(double));
+		MPI_Recv(X, (n * d), MPI_DOUBLE, MASTER, 2 , MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+	}
+	
+	knnresult mpi_res = distrAllkNN(X, n, d, k);
+
+
+	/* =============================== Validate result ===========================*/
+	
+	if(id == MASTER){
+		double end = MPI_Wtime();
+		MPI_Request request[3];
+		knnresult total_res;
+		total_res.m = n * p;
+		total_res.k = k;
+		total_res.ndist = (double *)malloc(n * p * k * sizeof(double *));
+		total_res.nidx = (int *)malloc(n * p * k * sizeof(int *));
+		
+		MPI_Gather( mpi_res.ndist, n * k, MPI_DOUBLE, total_res.ndist , n * k, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
+		MPI_Gather( mpi_res.nidx, n * k, MPI_INT, total_res.nidx , n * k, MPI_INT, MASTER, MPI_COMM_WORLD);
+		
+
+		knnresult serial_res = kNN(Data, Data, p*n, p*n, d, k);
+		
+		int dist_success = 1;
+		int index_success = 1;
+		
+		for(int i = 0; i < p*n*k ; ++i){
+			if(fabs(serial_res.ndist[i] - total_res.ndist[i]) > 1e-6){
+				dist_success = 0;
+			}
+		}
+		
+		for(int i = 0; i < p*n*k ; ++i){
+			if(serial_res.nidx[i] != total_res.nidx[i]){
+				index_success = 0;
+			}
+		}
+		
+		if(dist_success){
+			printf("DISTANCES SUCCEEDED\n");
+		}else{
+			printf("DISTANCES FAILED\n");
+		}
+		
+		if(index_success){
+			printf("INDEX SUCCEEDED\n");
+		}else{
+			printf("INDEX FAILED\n");
+		}
+		
+		free(serial_res.ndist);
+		free(serial_res.nidx);
+		free(total_res.ndist);
+		free(total_res.nidx);
+		
+		free(Data);
+	}else{
+		MPI_Gather( mpi_res.ndist, n * k, MPI_DOUBLE, NULL, n * k, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
+		MPI_Gather( mpi_res.nidx, n * k, MPI_INT, NULL, n * k, MPI_INT, MASTER, MPI_COMM_WORLD);
+		
+	}
+	
+	MPI_Finalize();
+	free(mpi_res.ndist);
+	free(mpi_res.nidx);
+	free(X);
+	return 0;
+}
+
+
+
+double getRandom(double min, double max){
+    double random = ((float)rand()) / (float)RAND_MAX;
+	double diff = max - min;
+	double r = random * diff;
+	return (min + r);
+}
+
+
+
 
 knnresult kNN(double * X, double * Y, int n, int m, int d, int k){
+	struct timespec start, finish;
+	double elapsed;
+	clock_gettime(CLOCK_MONOTONIC, &start);
+	
     knnresult result;
 	
     //allocate the needed memory for the result buffers
@@ -57,6 +196,11 @@ knnresult kNN(double * X, double * Y, int n, int m, int d, int k){
     result.k = k;
     result.m = m;
 	
+	clock_gettime(CLOCK_MONOTONIC, &finish);
+	elapsed = (finish.tv_sec - start.tv_sec);
+	elapsed += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
+	printf("Blas Time is %lf\n", elapsed);
+	
     return result;
 }
 
@@ -66,7 +210,7 @@ knnresult kNN(double * X, double * Y, int n, int m, int d, int k){
 	Y stores the sum(Y.^2) and X stores the sum(X.^2) as "col" and "row" respectivly so they are calculated only once
 	and then it adds them with the mixed produxt x*y	
 	It returns the <<squared>> values of the actual distances 
-*/
+
 void calcDistances(double *X ,double *Y, double *Xsum, double *Ysum,double *D,int size_x, int size_y, int d){
 	for(int i = 0; i < size_y ; ++i){
 		Ysum[i] = cblas_ddot(d,&Y[i*d],1,&Y[i*d],1);
@@ -81,7 +225,7 @@ void calcDistances(double *X ,double *Y, double *Xsum, double *Ysum,double *D,in
 	
 	cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, size_x, size_y, d, -2, X, d, Y, d, 1, D, size_y);
 }
-
+*/
 
 /*
 	classic iterative implementation of quickselect
@@ -148,16 +292,3 @@ int comparator(const void *p, const void *q)
     }
 }
 
-
-/*
-	auxilary function prints the result table for debugging purposes
-*/
-void printResult(knnresult result){
-	printf("Result is:\n");
-	for(int i = 0; i < result.m; ++i){
-		for(int j = 0; j < result.k; ++j){
-			printf("%lf ,",result.ndist[i*result.k + j]);
-		}
-		printf("\n");
-	}
-}

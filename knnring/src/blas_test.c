@@ -30,7 +30,7 @@ int main(int argc,char *argv[])
 	double *Ysum = (double *)malloc(m * sizeof(double));
 	double *D = (double *)malloc(n * m * sizeof(double));
 	
-	//printf("Sizes %i %i %i\n",n*d,m*d,n*m);
+	printf("Sizes %i %i %i\n",n,m,d);
 	
 	//fill with data
 	if(n >= m){
@@ -118,6 +118,7 @@ int main(int argc,char *argv[])
 	
 	
 	printf("Total speed up: %lf\n", elapsed2/elapsed);
+	printf("========================================\n");
 	
 	return 0;
 }

@@ -9,11 +9,19 @@ const double min = -1000.0;
 void printArray(double *Arr,int m,int n);
 double getRandom(double min, double max);
 
-int main(int argc,char *argv[]){
-    int n = 21; //data points
-    int m = 21; //query points
+int main(int argc,char *argv[]){	
+    int n = 20; //data points
+    int m = 20; //query points
     int d = 10; //dimensions
-    int k = 7; //neighbors
+    int k = 2; //neighbors
+	
+	if (argc != 5)
+		exit(-1);
+
+	n = atoi(argv[1]);
+	m = atoi(argv[2]);
+	d = atoi(argv[3]);
+	k = atoi(argv[4]);
 
     struct timespec start, finish;
 	double elapsed;

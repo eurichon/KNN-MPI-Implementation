@@ -26,15 +26,17 @@ typedef struct{
 void calcKnnAsyn(knnresult *r,data *D, Limits *l,Comm *comm, int *flag, Package *pack, int n ,int k);
 void rotateData(Comm *comm, int *flag, Package *pack);
 void myProd( Limits *in, Limits *inout, int *len, MPI_Datatype *dptr );
-
+void calcMax(Limits *l,double *Dist, int n);
 
 knnresult distrAllkNN(double *X,int n,int d,int k){
 	knnresult result;
+	struct timespec start, finish;
+	double elapsed;
 	data *Data;
 	double *Y, *Z, *Dist, *Xsum, *Ysum;
 	int id, p;
 	int *Indexes;
-	double begin = MPI_Wtime();
+	
 	
 	MPI_Comm_rank(MPI_COMM_WORLD, &id);
 	MPI_Comm_size(MPI_COMM_WORLD, &p);
@@ -96,19 +98,29 @@ knnresult distrAllkNN(double *X,int n,int d,int k){
 	MPI_Request req;
 	MPI_Status status;
 	
-	
+	elapsed = 0.0;
 	
 	/* we can call it also in iterations of updateData and calcDistances if the size of the set becomes big enough*/
 	rotateData(&comm, &flag ,&pack);
 		
 	calcDistances(X, Y, Xsum, Ysum, Dist, n, n, d); // performs the distance calculation and puts the result to Dist table
+	calcMax(&l,Dist, n);
 	updateData(Data, Dist, curr, n, k);				// copies the elements of Dist in the rights position to Data and adds for each an id
 	calcKnnAsyn(&result,Data,&l,&comm, &flag ,&pack,n, k);						// performs quickselect and qsort for each point and sotres it to result
 	
+	/*  If the communication takes enough time it will surpass the calculation time above and the look below loop will wait untill
+		it completes. The time it waits is the actual communication time in the asynchronous mpi where all the calculations have completed
+		and the process waits for the data transfer. If the communication has been finished before we reached the loop then that means
+		it was completly hidden by the calculations! The comm isFinished will be true and the loop will instantly break
+	*/
+	clock_gettime(CLOCK_MONOTONIC, &start);
 	while(!comm.isFinished){
 		rotateData(&comm, &flag ,&pack);
 	}
 	
+	clock_gettime(CLOCK_MONOTONIC, &finish);
+	elapsed = elapsed + (finish.tv_sec - start.tv_sec);
+	elapsed += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
 	
 	for(int i = 0; i < (p - 1); i++){ //(p - 1)
 		curr = (curr - 1 + p) % p; //finds from which actual process we currently receive data
@@ -119,29 +131,39 @@ knnresult distrAllkNN(double *X,int n,int d,int k){
 		rotateData(&comm, &flag,  &pack);
 		
 		calcDistances(X, Y, Xsum, Ysum, Dist, n, n, d);
+		calcMax(&l,Dist, n);
 		updateData(Data, Dist, curr, n, k);
-		calcKnnAsyn(&result, Data,&l,&comm, &flag ,&pack, n, k);
+		calcKnnAsyn(&result, Data, &l, &comm, &flag ,&pack, n, k);
 		
+		clock_gettime(CLOCK_MONOTONIC, &start);
 		while(!comm.isFinished){
 			rotateData(&comm, &flag ,&pack);
 		}
+		clock_gettime(CLOCK_MONOTONIC, &finish);
+		elapsed = elapsed + (finish.tv_sec - start.tv_sec);
+		elapsed += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
+		
 	}
-	
+	if(id == MASTER)
+			printf("Communication Time is %lf\n", elapsed);
 	MPI_Op myOp; 
 	MPI_Datatype ctype; 
 	MPI_Type_contiguous( 2, MPI_DOUBLE, &ctype ); 
     MPI_Type_commit( &ctype ); 
 	
-	MPI_Op_create((void *)myProd, 1, &myOp ); 
+	MPI_Op_create((void *)myProd, 1, &myOp );
+	//printf("Before max %lf min %lf\n",l.max, l.min);	
     MPI_Allreduce( &l, &res_l, 1, ctype, myOp, MPI_COMM_WORLD ); 
-	printf("Process %i received max=%lf, min=%lf\n",id, res_l.max, res_l.min);
+
+	//printf("Process %i received max=%lf, min=%lf\n",id, res_l.max, res_l.min);
 	
 	result.max = res_l.max;
 	result.min = res_l.min;
 	
-	double end = MPI_Wtime();
-	if(id == MASTER)
-		printf("Total time is: %lf\n", end - begin);
+	if(id == MASTER) 
+		printf("Global max=%lf & min=%lf\n",res_l.max, res_l.min);
+	
+	
 	
 	//if(id == MASTER)
 	//	printResult(result);
@@ -157,10 +179,10 @@ knnresult distrAllkNN(double *X,int n,int d,int k){
 void myProd(Limits *in, Limits *inout, int *len, MPI_Datatype *dptr ) 
 { 
     for (int i=0; i< *len; ++i) { 
-		if(in->max > inout->max){
+		if((in->max) > (inout->max)){
 			inout->max = in->max;
 		}
-		if(in->min < inout->min){
+		if((in->min) < (inout->min)){
 			inout->min = in->min;
 		}
     } 
@@ -255,13 +277,25 @@ void calcDistances(double *X ,double *Y, double *Xsum, double *Ysum,double *D,in
 }
 
 
+
+void calcMax(Limits *l,double *Dist, int n){
+	for(int i = 0;i < n;i++){
+		for(int j = 0;j < n;j++){
+			l->max = (Dist[i * n + j] > l->max)?(Dist[i * n + j]):(l->max);
+		}		
+	}
+	
+}
+
+
+
 /*
 	Performs quickselect between the previous stored Knn's and the new set pushing the new knn's in the first k places of each row
 	Soon after it performs quicksort in the k first places of each row so as to sort these new knn's
 	Lastly it copies the values to the result and applying sqrt and fabs and calculate global min & max
 */
 void calcKnnAsyn(knnresult *r,data *D, Limits *l,Comm *comm, int *flag, Package *pack, int n ,int k){
-	for(int i = 0; i < n; i++){
+	for(int i = 0; i < n; i++){		
 		quickSelect(&D[i * (n + k)], 0, (n + k - 1), k);
 		qsort((void*)&D[i * (n + k)], k, sizeof(D[0]), dataComparator);
 		for(int j = 0; j < k; j++){
@@ -272,10 +306,7 @@ void calcKnnAsyn(knnresult *r,data *D, Limits *l,Comm *comm, int *flag, Package 
 			}
 		}
 		
-		for(int j = k; j < (n + k); j++){
-			if(l->max < (D[i * (n + k) + j].dist))
-				l->max = D[i * (n + k) + j].dist;
-		}
+		
 		rotateData(comm, flag ,pack);
 	}
 }

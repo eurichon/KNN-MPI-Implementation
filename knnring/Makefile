@@ -1,11 +1,11 @@
-CC=gcc-7
+CC=gcc
 MPICC=mpicc
 CFLAGS=-g -Wall
 LIBS =-lm -lopenblas -lpthread -lgfortran
 MAIN= knnring_sequential
 DEPS= knnring.h
 
-.PHONY: lib blas_test
+.PHONY: lib blas_test mpi_test_asyn mpi_test_sync
 All: src/knnring_sequential.o src/main.o
 	$(CC) $(CFLAGS) -o $(MAIN) src/knnring_sequential.o src/main.o -I /opt/OpenBLAS/include/ -L/opt/OpenBLAS/lib $(LIBS)
 	./$(MAIN)
@@ -18,7 +18,15 @@ main.o: src/main.c inc/knnring.h
 
 blas_test: src/blas_test.c
 	$(CC) src/blas_test.c -o blas_test -I /opt/OpenBLAS/include/ -L/opt/OpenBLAS/lib $(LIBS)
-	./blas_test 10000 10000 100
+	./blas_test 1000 1000 100
+
+mpi_test_sync: src/knnring_mpi.c src/myTester.c
+	$(MPICC) -o mpi_test_sync src/knnring_mpi.c src/myTester.c -I /opt/OpenBLAS/include/ -L /opt/OpenBLAS/lib $(LIBS)
+	mpirun -np 4 ./mpi_test_sync 500 20 50
+	
+mpi_test_asyn: src/knnring_mpi_asyc.c src/myTester.c
+	$(MPICC) -o mpi_test_asyn src/knnring_mpi_asyc.c src/myTester.c -I /opt/OpenBLAS/include/ -L /opt/OpenBLAS/lib $(LIBS)
+	mpirun -np 4 ./mpi_test_asyn 500 20 50
 
 lib: src/knnring_sequential.o inc/knnring.h
 	$(CC) -c -o src/knnring_sequential.o src/knnring_sequential.c 
