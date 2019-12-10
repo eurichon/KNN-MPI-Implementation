@@ -1,13 +1,13 @@
-### For more information check the [pdf][1] and the code documentation
+### For more information check out the [pdf][1] and the code documentation
 
 <pre>
 Execution of the code:
-	* Sequential 					 		inside ./TESTER_MPI            			make
-	* synchronous (tester_mpi)		 		inside ./TESTER_MPI         			make test_mpi_sync
-	* ashynchronous + reduction (tester_mpi)inside ./TESTER_MPI           			make test_mpi_asyn
-	* synchronous (myTester)		 		inside ./TESTER_MPI/knnring         	make mpi_test_sync
-	* ashynchronous + reduction (myTester)	inside ./TESTER_MPI/knnring           	make mpi_test_asyn
-	* to test blas implementation 	 		inside ./TESTER_MPI/knnring    			make blas_test 
+	* Sequential 					inside ./TESTER_MPI            		make
+	* synchronous (tester_mpi)		 	inside ./TESTER_MPI         		make test_mpi_sync
+	* ashynchronous + reduction (tester_mpi)	inside ./TESTER_MPI           		make test_mpi_asyn
+	* synchronous (myTester)		 	inside ./TESTER_MPI/knnring         	make mpi_test_sync
+	* ashynchronous + reduction (myTester)		inside ./TESTER_MPI/knnring           	make mpi_test_asyn
+	* to test blas implementation 	 		inside ./TESTER_MPI/knnring    		make blas_test 
 	* to test the old  mpi version 	 		inside ./TESTER_MPI/knnring/src_old     make
 	
 NOTE:
