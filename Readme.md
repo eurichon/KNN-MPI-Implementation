@@ -17,7 +17,7 @@ results with the sequential. So there must be some kind of issue with the (./TES
 
 ** Each make command will rebuild from scratch cause of the .PHONY in the makefile
 
-** To do: check and correct MPI distributed implementation
+
 </pre>
 [1]: https://github.com/eurichon/KNN-MPI-Implementation/blob/master/Exercise%20II-%208527.pdf
 
